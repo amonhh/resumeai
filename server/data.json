@@ -1,0 +1,260 @@
+{
+  "resume_1783352465006_c024ex3hp": {
+    "id": "resume_1783352465006_c024ex3hp",
+    "user_id": "user_3G8OuiyotJYFLhYDJJ6JNdF3own",
+    "title": "Untitled Resume",
+    "template": "creative-twotone",
+    "personal_details": {},
+    "summary": "",
+    "experience": [],
+    "education": [],
+    "skills": [],
+    "score": 0,
+    "score_feedback": {},
+    "created_date": "2026-07-06T15:41:05.006Z",
+    "updated_date": "2026-07-06T15:41:05.006Z"
+  },
+  "resume_1783352761616_1vyt0tzu4": {
+    "id": "resume_1783352761616_1vyt0tzu4",
+    "user_id": "user_3G8OuiyotJYFLhYDJJ6JNdF3own",
+    "title": "Untitled Resume",
+    "template": "creative-twotone",
+    "personal_details": {},
+    "summary": "",
+    "experience": [],
+    "education": [],
+    "skills": [],
+    "score": 0,
+    "score_feedback": {},
+    "created_date": "2026-07-06T15:46:01.616Z",
+    "updated_date": "2026-07-06T15:46:01.616Z"
+  },
+  "resume_1783353509632_p7bhb3ngh": {
+    "id": "resume_1783353509632_p7bhb3ngh",
+    "user_id": "user_3G8OuiyotJYFLhYDJJ6JNdF3own",
+    "title": "Imported Resume",
+    "template": "modern-blue",
+    "personal_details": {},
+    "summary": "",
+    "experience": [],
+    "education": [],
+    "skills": [],
+    "score": 0,
+    "score_feedback": {},
+    "created_date": "2026-07-06T15:58:29.632Z",
+    "updated_date": "2026-07-06T15:58:29.632Z"
+  },
+  "resume_1783353536185_3ys6x7efh": {
+    "id": "resume_1783353536185_3ys6x7efh",
+    "user_id": "user_3G8OuiyotJYFLhYDJJ6JNdF3own",
+    "title": "Housekeeper Resume",
+    "template": "creative-twotone",
+    "personal_details": {
+      "full_name": "Maria Johnson",
+      "job_title": "Housekeeper",
+      "email": "maria.johnson@email.com",
+      "phone": "+1234567890",
+      "location": "San Diego, CA"
+    },
+    "summary": "Dedicated and detail-oriented housekeeper with over 3 years of experience in maintaining cleanliness and order in residential and commercial spaces. Proven ability to manage time effectively, execute thorough cleaning tasks, and uphold high standards of cleanliness. Strong communication and customer service skills, ensuring client satisfaction through quality care and attention to detail.",
+    "experience": [
+      {
+        "job_title": "Housekeeping Supervisor",
+        "company": "Sunset Villas Hotel",
+        "location": "San Diego, CA",
+        "start_date": "2021-01-01",
+        "end_date": "2023-10-01",
+        "current": false,
+        "description": "Supervised a team of 10 housekeepers, ensuring the cleanliness of 150+ guest rooms and public areas.",
+        "achievements": [
+          "Increased room cleaning efficiency by 20% through the implementation of a new cleaning schedule.",
+          "Received 'Employee of the Month' award twice for outstanding performance and client feedback."
+        ]
+      },
+      {
+        "job_title": "Housekeeper",
+        "company": "Crystal Clean Services",
+        "location": "San Diego, CA",
+        "start_date": "2019-10-01",
+        "end_date": "2020-12-31",
+        "current": false,
+        "description": "Performed thorough cleaning and sanitization of residential homes, ensuring client satisfaction and adherence to health standards.",
+        "achievements": [
+          "Achieved a 95% client satisfaction rate based on feedback surveys.",
+          "Recognized for punctuality and dedication during peak cleaning seasons."
+        ]
+      },
+      {
+        "job_title": "Housekeeper",
+        "company": "Greenhouse Rentals",
+        "location": "San Diego, CA",
+        "start_date": "2018-08-01",
+        "end_date": "2019-09-30",
+        "current": false,
+        "description": "Maintained 10 high-end rental properties, ensuring all areas were spotless before guest arrivals.",
+        "achievements": [
+          "Reduced cleaning turnaround time by 15% while maintaining high standards of cleanliness.",
+          "Gained repeat business from landlords due to exceptional service quality."
+        ]
+      }
+    ],
+    "education": [
+      {
+        "degree": "High School Diploma",
+        "institution": "San Diego High School",
+        "location": "San Diego, CA",
+        "start_date": "2014-09-01",
+        "end_date": "2018-06-30"
+      }
+    ],
+    "skills": [
+      {
+        "name": "Detail-Oriented Cleaning",
+        "level": "Expert"
+      },
+      {
+        "name": "Time Management",
+        "level": "Advanced"
+      },
+      {
+        "name": "Customer Service",
+        "level": "Advanced"
+      },
+      {
+        "name": "Sanitation Techniques",
+        "level": "Expert"
+      },
+      {
+        "name": "Team Leadership",
+        "level": "Intermediate"
+      },
+      {
+        "name": "Inventory Management",
+        "level": "Intermediate"
+      }
+    ],
+    "score": 0,
+    "score_feedback": {},
+    "created_date": "2026-07-06T15:58:56.185Z",
+    "updated_date": "2026-07-06T15:58:56.185Z"
+  },
+  "resume_1783357408428_pn0mz0o69": {
+    "id": "resume_1783357408428_pn0mz0o69",
+    "user_id": "user_3G8OuiyotJYFLhYDJJ6JNdF3own",
+    "title": "Joseph Amon Khalechi's Resume",
+    "template": "modern-blue",
+    "personal_details": {
+      "full_name": "Joseph Amon Khalechi",
+      "job_title": "Math and PE Teacher",
+      "email": "amonjoe7@gmail.com",
+      "phone": "+971503754632",
+      "location": "Dubai"
+    },
+    "summary": "Enthusiastic and dedicated IGCSE Math and PE Teacher with experience in learning and training students enhancing their knowledge, abilities and skills. Highly adaptable professional with a commitment to all aspects of student learning and promotion of growth.",
+    "experience": [
+      {
+        "job_title": "Math Teacher",
+        "company": "Premier Academy",
+        "location": "Nairobi",
+        "start_date": "January 2022",
+        "end_date": "July 2023",
+        "current": false,
+        "description": "IGCSE Math and PE teacher/Sports teacher at Premier Academy. Duties included: Teaching IGCSE Mathematics and Physical Education.",
+        "achievements": [
+          "Achieved consistently high student performance, with 95% of students meeting or exceeding grade expectations in IGCSE Mathematics examinations.",
+          "Collaborated with colleagues to develop and implement innovative teaching strategies, including the integration of technology to enhance math instruction.",
+          "Organized and coached successful sports teams, overseeing training sessions, strategizing game plans, and instilling values of sportsmanship and teamwork.",
+          "Organized math and sports-related extracurricular activities, including math competitions and sports tournaments, to encourage student participation and achievement.",
+          "Actively participated in professional development opportunities to stay updated on the latest teaching techniques and educational trends."
+        ]
+      },
+      {
+        "job_title": "Math and PE Teacher",
+        "company": "Riara Group of Schools",
+        "location": "Nairobi",
+        "start_date": "January 2019",
+        "end_date": "December 2021",
+        "current": false,
+        "description": "Math and PE teacher/Sports teacher at Riara Group of Schools. Duties included: Teaching Math and Physical Education, Coaching and Training Swimming, Soccer and other sports.",
+        "achievements": [
+          "Mentored and provided individualized support to students, addressing their unique learning needs and fostering a growth mindset.",
+          "Organized and coached successful sports teams, overseeing training sessions, strategizing game plans, and instilling values of sportsmanship and teamwork."
+        ]
+      },
+      {
+        "job_title": "H.O.D, PE Department and Math Teacher",
+        "company": "Brookhurst International School",
+        "location": "Nairobi",
+        "start_date": "January 2017",
+        "end_date": "December 2018",
+        "current": false,
+        "description": "IGCSE PE and BTEC Teacher/Sports Coordinator at Brookhurst International School. Duties include: Teaching IGCSE Physical Education and IGCSE Mathematics, Coaching and Training Basketball, Swimming, Soccer, netball, rugby, rounders, cricket, hockey etc.",
+        "achievements": [
+          "Worked well independently and on a team to solve problems.",
+          "Served as a friendly, hardworking, and punctual employee.",
+          "Organized and prioritized work to complete assignments in a timely, efficient manner."
+        ]
+      }
+    ],
+    "education": [
+      {
+        "degree": "B. Ed Physical Education and Sports, Mathematics",
+        "institution": "University of Nairobi",
+        "location": "Nairobi",
+        "start_date": "May 2013",
+        "end_date": "December 2016"
+      },
+      {
+        "degree": "Diploma in Computer Science",
+        "institution": "Institute of Certified Studies",
+        "location": "Nairobi",
+        "start_date": "February 2015",
+        "end_date": "August 2017"
+      },
+      {
+        "degree": "KCSE",
+        "institution": "Kakamega School",
+        "location": "Kakamega",
+        "start_date": "January 2008",
+        "end_date": "November 2011"
+      },
+      {
+        "degree": "KCPE",
+        "institution": "Ilungu Primary School",
+        "location": "Nairobi",
+        "start_date": "January 2000",
+        "end_date": "November 2007"
+      }
+    ],
+    "skills": [
+      {
+        "name": "Communication Skills",
+        "level": "Intermediate"
+      },
+      {
+        "name": "Computer Skills",
+        "level": "Intermediate"
+      },
+      {
+        "name": "Computer Literate",
+        "level": "Advanced"
+      },
+      {
+        "name": "Digital Media",
+        "level": "Intermediate"
+      },
+      {
+        "name": "Ability to Work in a Team",
+        "level": "Advanced"
+      },
+      {
+        "name": "Leadership",
+        "level": "Advanced"
+      }
+    ],
+    "score": 0,
+    "score_feedback": {},
+    "created_date": "2026-07-06T17:03:28.428Z",
+    "updated_date": "2026-07-06T17:03:28.428Z"
+  }
+}
