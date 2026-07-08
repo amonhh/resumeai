@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { db } from '@/lib/db';
 import { Button } from "@/components/ui/button";
-import { Sparkles, Loader2, Check, ChevronDown } from "lucide-react";
+import { Sparkles, Loader2, Check, ChevronDown, Copy, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 
 const ACTIONS = {
@@ -50,6 +50,8 @@ export default function AIActions({ section, currentContent, context, onApply, o
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(null);
   const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [showResultPanel, setShowResultPanel] = useState(false);
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -62,6 +64,7 @@ export default function AIActions({ section, currentContent, context, onApply, o
 
   const handleAction = async (actionId) => {
     setLoading(actionId);
+    setError(null);
     setResult(null);
     setOpen(false);
     try {
@@ -76,19 +79,45 @@ export default function AIActions({ section, currentContent, context, onApply, o
 
       if (response?.text) {
         setResult(response.text);
-        if (actionId === 'suggest' || actionId === 'match_job' || actionId === 'missing') {
-          const skills = response.text.match(/"([^"]+)"/g)?.map(s => s.replace(/"/g, '')) || response.text.split(',').map(s => s.trim()).filter(Boolean);
-          if (onAddSkills) onAddSkills(skills);
-          toast.success(`${skills.length} skills suggested`);
-        } else {
-          if (onApply) onApply(response.text);
-          toast.success('Content updated');
-        }
+        setShowResultPanel(true);
+      } else {
+        throw new Error('Empty response');
       }
     } catch (err) {
+      setError(err.message || 'AI action failed');
       toast.error('AI action failed. Please try again.');
     } finally {
       setLoading(null);
+    }
+  };
+
+  const handleApply = () => {
+    if (!result) return;
+    if (section === 'skills') {
+      const skills = result.match(/"([^"]+)"/g)?.map(s => s.replace(/"/g, '')) || result.split(',').map(s => s.trim()).filter(Boolean);
+      if (onAddSkills) onAddSkills(skills);
+      toast.success(`${skills.length} skills added`);
+    } else {
+      if (onApply) onApply(result);
+      toast.success('Content applied');
+    }
+    setShowResultPanel(false);
+    setResult(null);
+  };
+
+  const handleCancel = () => {
+    setShowResultPanel(false);
+    setResult(null);
+    setError(null);
+  };
+
+  const handleCopy = async () => {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(result);
+      toast.success('Copied to clipboard');
+    } catch {
+      toast.error('Failed to copy');
     }
   };
 
@@ -115,12 +144,73 @@ export default function AIActions({ section, currentContent, context, onApply, o
         </div>
       )}
 
-      {result && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setResult(null)}>
-          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-lg mx-4 max-h-80 overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <p className="text-sm text-slate-200 whitespace-pre-wrap">{result}</p>
-            <Button size="sm" onClick={() => setResult(null)} className="mt-4 bg-emerald-600 hover:bg-emerald-700">Done</Button>
+      {showResultPanel && result && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/60" onClick={handleCancel}>
+          <div className="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700 shrink-0">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-semibold text-slate-100">AI Suggestion</h3>
+              </div>
+              <button onClick={handleCancel} className="text-slate-400 hover:text-slate-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {currentContent && (
+                <div>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Original</p>
+                  <div className="bg-slate-900/50 rounded-lg p-4 text-sm text-slate-400 border border-slate-700">
+                    {currentContent || <span className="italic">(empty)</span>}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <div className="h-px flex-1 bg-slate-700" />
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <div className="h-px flex-1 bg-slate-700" />
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-emerald-400 uppercase tracking-wider mb-2">AI Generated</p>
+                <div className="bg-emerald-950/30 rounded-lg p-4 text-sm text-slate-200 border border-emerald-900/50 whitespace-pre-wrap">
+                  {result}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-slate-700 shrink-0 flex-wrap">
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={handleCopy}
+                  className="border-slate-600 text-slate-300 hover:bg-slate-700">
+                  <Copy className="w-3.5 h-3.5 mr-1.5" /> Copy
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => handleAction(loading || actions[0]?.id)}
+                  className="border-slate-600 text-slate-300 hover:bg-slate-700">
+                  <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Regenerate
+                </Button>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="ghost" onClick={handleCancel}
+                  className="text-slate-400 hover:text-slate-200">
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={handleApply}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                  <Check className="w-3.5 h-3.5 mr-1.5" /> Apply
+                </Button>
+              </div>
+            </div>
           </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="fixed bottom-6 right-6 z-50 bg-red-900/90 border border-red-700 rounded-lg px-4 py-3 text-sm text-red-200 shadow-xl flex items-center gap-3">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-300 hover:text-white"><X className="w-4 h-4" /></button>
         </div>
       )}
     </div>

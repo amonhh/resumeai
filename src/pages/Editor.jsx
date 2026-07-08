@@ -168,8 +168,11 @@ export default function Editor() {
     return Array.from(nodes).map(el => el.outerHTML).join('\n');
   };
 
+  const [downloadProgress, setDownloadProgress] = useState(null);
+
   const doDownload = async (format) => {
     setDownloading(true);
+    setDownloadProgress(`Preparing ${format.toUpperCase()}...`);
     try {
       let html;
       const contentEl = resumeContentRef.current;
@@ -181,20 +184,28 @@ export default function Editor() {
         clone.style.minHeight = '297mm';
         html = clone.outerHTML;
       } else {
+        setDownloadProgress('Rendering preview...');
         const div = document.createElement('div');
         div.style.cssText = 'position:absolute;left:-9999px;top:0;width:210mm;';
         document.body.appendChild(div);
         const root = createRoot(div);
         root.render(<ResumePreview resume={resumeData} template={resumeData.template} />);
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 1000));
         html = div.innerHTML;
         root.unmount();
         document.body.removeChild(div);
       }
+      setDownloadProgress('Applying styles...');
       const styles = copyStyles();
+
       if (format === 'pdf') {
         const pw = window.open('', '_blank', 'width=800,height=600');
-        if (!pw) { toast.error('Pop-up blocked. Please allow pop-ups.'); return; }
+        if (!pw) {
+          toast.error('Pop-up blocked. Please allow pop-ups for your browser, then try again.');
+          setDownloading(false);
+          setDownloadProgress(null);
+          return;
+        }
         pw.document.write(`<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8"><title>${resumeData.title || 'Resume'}</title>
@@ -206,8 +217,10 @@ ${styles}
 </style>
 </head><body>${html}</body></html>`);
         pw.document.close();
-        setTimeout(() => { pw.focus(); pw.print(); }, 500);
+        setDownloadProgress('Opening print dialog...');
+        setTimeout(() => { pw.focus(); pw.print(); setDownloadProgress(null); }, 600);
       } else {
+        setDownloadProgress('Generating document...');
         const fullDoc = `<!DOCTYPE html>
 <html xmlns:o='urn:schemas-microsoft-com:office:office'
       xmlns:w='urn:schemas-microsoft-com:office:word'
@@ -229,10 +242,12 @@ ${styles}
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        setDownloadProgress(null);
       }
       toast.success(`Downloaded as ${format.toUpperCase()}`);
     } catch (e) {
       toast.error('Download failed: ' + e.message);
+      setDownloadProgress(null);
     } finally {
       setDownloading(false);
     }
@@ -296,38 +311,77 @@ ${styles}
     });
   };
 
-  const calculateResumeScore = async () => {
+  const calculateResumeScore = useCallback(async (silent = false) => {
     setCalculatingScore(true);
     try {
       const response = await db.integrations.Core.InvokeLLM({
-        prompt: `Analyze this resume and provide detailed feedback with a score.
+        prompt: `You are an expert ATS (Applicant Tracking System) resume analyzer. Analyze this resume and provide detailed scores and feedback.
+
 Resume data: ${JSON.stringify(resumeData, null, 2)}
-Evaluate: completeness, formatting, achievements, skills relevance, grammar, impact.
-Provide JSON with score (0-100), strengths[], improvements[], summary.`,
+
+Evaluate on these criteria:
+1. Formatting (0-100): section order, consistency, white space, length
+2. Content (0-100): completeness, achievements, action verbs, quantified results
+3. Keywords (0-100): keyword density, job title relevance, skills match
+4. Readability (0-100): sentence structure, paragraph length, passive voice
+5. Grammar (0-100): spelling, punctuation, weak wording
+
+Return JSON with:
+- score (0-100): overall ATS score
+- formatting, content, keywords, readability, grammar (0-100 each)
+- strengths[]: what's working well
+- improvements[]: areas to fix
+- recommendations[]: specific actionable suggestions
+- summary: brief overall assessment`,
         response_json_schema: {
           type: "object",
           properties: {
             score: { type: "number" },
+            formatting: { type: "number" },
+            content: { type: "number" },
+            keywords: { type: "number" },
+            readability: { type: "number" },
+            grammar: { type: "number" },
             strengths: { type: "array", items: { type: "string" } },
             improvements: { type: "array", items: { type: "string" } },
+            recommendations: { type: "array", items: { type: "string" } },
             summary: { type: "string" }
           }
         }
       });
       const score = response.score || 0;
-      const feedback = { strengths: response.strengths || [], improvements: response.improvements || [], summary: response.summary || '' };
+      const feedback = {
+        formatting: response.formatting || score,
+        content: response.content || score,
+        keywords: response.keywords || score,
+        readability: response.readability || score,
+        grammar: response.grammar || score,
+        strengths: response.strengths || [],
+        improvements: response.improvements || [],
+        recommendations: response.recommendations || [],
+        summary: response.summary || ''
+      };
       setResumeData(prev => ({ ...prev, score, score_feedback: feedback }));
-      if (!isDraft && resumeId) {
-        await updateResumeMutation.mutateAsync({ ...resumeData, score, score_feedback: feedback });
+      if (!silent) {
+        toast.success(`ATS Score: ${score}%`);
+        setShowScoreFeedback(true);
       }
-      toast.success(`Score: ${score}%`);
-      setShowScoreFeedback(true);
     } catch (error) {
-      toast.error('Failed to calculate score');
+      if (!silent) toast.error('Failed to calculate score');
     } finally {
       setCalculatingScore(false);
     }
-  };
+  }, [resumeData]);
+
+  // Auto-recalculate score when resume data changes (debounced)
+  const scoreTimerRef = useRef(null);
+  useEffect(() => {
+    if (resumeData && !resumeData.id?.startsWith('draft_')) {
+      if (scoreTimerRef.current) clearTimeout(scoreTimerRef.current);
+      scoreTimerRef.current = setTimeout(() => calculateResumeScore(true), 5000);
+    }
+    return () => { if (scoreTimerRef.current) clearTimeout(scoreTimerRef.current); };
+  }, [resumeData, calculateResumeScore]);
 
   if ((isLoading && !location.state?.resumeData) || !resumeData) {
     return <div className="min-h-screen flex items-center justify-center bg-slate-950"><Loader2 className="w-8 h-8 animate-spin text-emerald-400" /></div>;
@@ -663,7 +717,7 @@ Provide JSON with score (0-100), strengths[], improvements[], summary.`,
         score={resumeData?.score} feedback={resumeData?.score_feedback} />
 
       {/* Download Dialog */}
-      <Dialog open={showDownloadDialog} onOpenChange={setShowDownloadDialog}>
+      <Dialog open={showDownloadDialog} onOpenChange={(v) => { if (!downloading) setShowDownloadDialog(v); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg text-slate-100">
@@ -671,33 +725,51 @@ Provide JSON with score (0-100), strengths[], improvements[], summary.`,
               Download Resume
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-4">
-            <button onClick={() => handleDownload('pdf')} disabled={downloading}
-              className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-slate-700 hover:border-emerald-500 hover:bg-emerald-950/50 transition-all group">
-              <div className="w-12 h-12 bg-red-900/30 rounded-xl flex items-center justify-center group-hover:bg-red-800/50 transition-colors">
-                <FileDown className="w-6 h-6 text-red-400" />
-              </div>
-              <div className="text-left flex-1">
-                <p className="font-semibold text-slate-100">PDF Format</p>
-                <p className="text-sm text-slate-400">Printer-friendly, universal format</p>
-              </div>
-              <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 transition-colors" />
-            </button>
-            <button onClick={() => handleDownload('doc')} disabled={downloading}
-              className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-slate-700 hover:border-emerald-500 hover:bg-emerald-950/50 transition-all group">
-              <div className="w-12 h-12 bg-emerald-900/30 rounded-xl flex items-center justify-center group-hover:bg-emerald-800/50 transition-colors">
-                <FileText className="w-6 h-6 text-emerald-400" />
-              </div>
-              <div className="text-left flex-1">
-                <p className="font-semibold text-slate-100">DOC Format</p>
-                <p className="text-sm text-slate-400">Editable Word document</p>
-              </div>
-              <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 transition-colors" />
-            </button>
-          </div>
-          {isDraft && !isAuthenticated && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-              <strong>Sign in required:</strong> Create a free account to download.
+
+          {downloadProgress ? (
+            <div className="py-8 text-center">
+              <Loader2 className="w-8 h-8 animate-spin text-emerald-400 mx-auto mb-3" />
+              <p className="text-sm text-slate-300">{downloadProgress}</p>
+            </div>
+          ) : (
+            <div className="space-y-3 py-4">
+              <button onClick={() => handleDownload('pdf')} disabled={downloading}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-slate-700 hover:border-emerald-500 hover:bg-emerald-950/50 transition-all group">
+                <div className="w-12 h-12 bg-red-900/30 rounded-xl flex items-center justify-center group-hover:bg-red-800/50 transition-colors">
+                  <FileDown className="w-6 h-6 text-red-400" />
+                </div>
+                <div className="text-left flex-1">
+                  <p className="font-semibold text-slate-100">PDF Format</p>
+                  <p className="text-sm text-slate-400">Printer-friendly, universal format</p>
+                </div>
+                {downloading ? <Loader2 className="w-5 h-5 animate-spin text-emerald-400" /> : <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 transition-colors" />}
+              </button>
+              <button onClick={() => handleDownload('doc')} disabled={downloading}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-slate-700 hover:border-emerald-500 hover:bg-emerald-950/50 transition-all group">
+                <div className="w-12 h-12 bg-emerald-900/30 rounded-xl flex items-center justify-center group-hover:bg-emerald-800/50 transition-colors">
+                  <FileText className="w-6 h-6 text-emerald-400" />
+                </div>
+                <div className="text-left flex-1">
+                  <p className="font-semibold text-slate-100">DOC Format</p>
+                  <p className="text-sm text-slate-400">Editable Word document</p>
+                </div>
+                {downloading ? <Loader2 className="w-5 h-5 animate-spin text-emerald-400" /> : <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 transition-colors" />}
+              </button>
+
+              {downloading && (
+                <div className="bg-slate-900/50 rounded-lg p-4 text-center">
+                  <div className="w-full bg-slate-700 rounded-full h-2 mb-2">
+                    <div className="bg-emerald-500 h-2 rounded-full animate-pulse" style={{ width: '60%' }} />
+                  </div>
+                  <p className="text-xs text-slate-400">Generating {downloading === 'pdf' ? 'PDF' : 'DOC'}...</p>
+                </div>
+              )}
+
+              {isDraft && !isAuthenticated && (
+                <div className="bg-amber-900/30 border border-amber-800/50 rounded-lg p-4 text-sm text-amber-300">
+                  <strong>Sign in required:</strong> Create a free account to download.
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
