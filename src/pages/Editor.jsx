@@ -13,19 +13,20 @@ import {
 } from "@/components/ui/select";
 import {
   Save, Eye, Download, Plus, Trash2, ArrowLeft, Sparkles, TrendingUp, Loader2, Upload,
-  FileText, FileDown, Search, UserPlus, X, ChevronRight, Printer
+  FileText, FileDown, Search, UserPlus, X, ChevronRight, Printer, Cloud, CloudOff, Clock
 } from "lucide-react";
 import { useNavigate, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { useClerk } from '@clerk/react';
-import AIAssistButton from '../components/resume/AIAssistButton';
-import AISkillsSuggestButton from '../components/resume/AISkillsSuggestButton';
+import AIActions from '../components/resume/AIActions';
 import ResumePreview from '../components/resume/ResumePreview';
 import TemplateSelector from '../components/resume/TemplateSelector';
+import ProgressTracker from '../components/resume/ProgressTracker';
 import ScoreFeedbackDialog from '../components/resume/ScoreFeedbackDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from 'sonner';
+import { useAutoSave, loadDraft, clearDraft } from '@/lib/useAutoSave';
 
 export default function Editor() {
   const navigate = useNavigate();
@@ -46,11 +47,15 @@ export default function Editor() {
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
   const previewRef = useRef(null);
   const resumeContentRef = useRef(null);
   const [previewScale, setPreviewScale] = useState(0.5);
   const pendingActionRef = useRef(null);
   const prevAuthRef = useRef(false);
+  const saveToApiRef = useRef(null);
+
+  const { saveStatus } = useAutoSave(resumeData, isAuthenticated, saveToApiRef);
 
   useEffect(() => {
     const el = previewRef.current;
@@ -67,10 +72,18 @@ export default function Editor() {
   }, [showPreview]);
 
   useEffect(() => {
-    if (isAuthenticated && !prevAuthRef.current && pendingActionRef.current) {
-      const action = pendingActionRef.current;
-      pendingActionRef.current = null;
-      action();
+    if (isAuthenticated && !prevAuthRef.current) {
+      if (pendingActionRef.current) {
+        const action = pendingActionRef.current;
+        pendingActionRef.current = null;
+        setTimeout(() => action(), 500);
+      } else {
+        const draft = loadDraft();
+        if (draft && (!resumeData || resumeData.id?.startsWith('draft_'))) {
+          setResumeData(prev => draft);
+          toast.success('Session restored');
+        }
+      }
     }
     prevAuthRef.current = isAuthenticated;
   }, [isAuthenticated]);
@@ -93,17 +106,26 @@ export default function Editor() {
         updated_date: new Date().toISOString()
       });
       setIsDraft(true);
+      setDraftRestored(false);
     } else if (resume) {
       setResumeData(resume);
       setIsDraft(false);
+      setDraftRestored(false);
+    } else if (!resumeData && !draftRestored) {
+      const draft = loadDraft();
+      if (draft) {
+        setResumeData({ ...draft, id: draft.id || `draft_${Date.now()}` });
+        setIsDraft(true);
+        setDraftRestored(true);
+        toast.success('Restored your last session');
+      }
     }
-  }, [resume, location.state]);
+  }, [resume, location.state, resumeData, draftRestored]);
 
   const updateResumeMutation = useMutation({
     mutationFn: (data) => db.entities.Resume.update(resumeId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['resume', resumeId] });
-      toast.success('Resume saved');
     }
   });
 
@@ -111,11 +133,18 @@ export default function Editor() {
     mutationFn: (data) => db.entities.Resume.create(data),
     onSuccess: (newResume) => {
       setIsDraft(false);
+      clearDraft();
       setResumeData(prev => ({ ...prev, id: newResume.id }));
       window.history.replaceState(null, '', createPageUrl(`Editor?id=${newResume.id}`));
-      toast.success('Resume saved! You can now download and export.');
+      toast.success('Resume saved!');
     }
   });
+
+  saveToApiRef.current = async (data) => {
+    if (data.id && !data.id.startsWith('draft_')) {
+      await updateResumeMutation.mutateAsync(data);
+    }
+  };
 
   const handleSave = async () => {
     if (isDraft && !isAuthenticated) {
@@ -124,12 +153,13 @@ export default function Editor() {
       return;
     }
     if (isDraft) {
-      const { id, created_date, updated_date, score, score_feedback, ...rest } = resumeData;
+      const { id, created_date, updated_date, score, score_feedback, _continueAsGuest, ...rest } = resumeData;
       await createResumeMutation.mutateAsync({
         ...rest, score: score || 0, score_feedback: score_feedback || {}
       });
+      clearDraft();
     } else {
-      updateResumeMutation.mutate(resumeData);
+      await updateResumeMutation.mutateAsync(resumeData);
     }
   };
 
@@ -208,13 +238,17 @@ ${styles}
     }
   };
 
-  const handleDownload = (format) => {
+  const handleDownload = async (format) => {
     if (isDraft && !isAuthenticated) {
       setShowDownloadDialog(false);
-      pendingActionRef.current = () => doDownload(format);
+      pendingActionRef.current = async () => {
+        await handleSave();
+        doDownload(format);
+      };
       openSignIn({ mode: 'modal' });
       return;
     }
+    if (isDraft) await handleSave();
     doDownload(format);
   };
 
@@ -314,8 +348,12 @@ Provide JSON with score (0-100), strengths[], improvements[], summary.`,
                   onChange={(e) => setResumeData(prev => ({ ...prev, title: e.target.value }))}
                   className="text-base font-semibold border-0 p-0 h-auto focus-visible:ring-0 bg-transparent truncate text-slate-100"
                   placeholder="Untitled Resume" />
-                <p className="text-xs text-slate-400">
-                  {isDraft ? 'Unsaved draft' : `Saved ${new Date(resumeData.updated_date).toLocaleDateString()}`}
+                <p className="text-xs text-slate-400 flex items-center gap-1">
+                  {saveStatus === 'saving' && <><Loader2 className="w-3 h-3 animate-spin" /> Saving...</>}
+                  {saveStatus === 'saved' && <><Cloud className="w-3 h-3 text-emerald-400" /> Saved just now</>}
+                  {saveStatus === 'error' && <><CloudOff className="w-3 h-3 text-amber-400" /> Save failed</>}
+                  {saveStatus === 'idle' && isDraft && 'Auto-save active'}
+                  {saveStatus === 'idle' && !isDraft && `Saved ${new Date(resumeData.updated_date).toLocaleDateString()}`}
                 </p>
               </div>
             </div>
@@ -355,6 +393,12 @@ Provide JSON with score (0-100), strengths[], improvements[], summary.`,
           </div>
         </div>
       </div>
+
+      <ProgressTracker resumeData={resumeData} activeSection={activeTab === 'personal' && resumeData.summary?.length > 0 ? 'summary' : activeTab} onNavigate={(sec) => {
+        const tabMap = { personal: 'personal', summary: 'personal', experience: 'experience', education: 'education', skills: 'skills', review: 'personal', download: 'personal' };
+        setActiveTab(tabMap[sec] || 'personal');
+        if (sec === 'review') calculateResumeScore();
+      }} />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="grid lg:grid-cols-2 gap-8">
@@ -422,7 +466,7 @@ Provide JSON with score (0-100), strengths[], improvements[], summary.`,
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <Label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Professional Summary</Label>
-                        <AIAssistButton section="Professional Summary" currentContent={resumeData.summary || ''}
+                        <AIActions section="summary" currentContent={resumeData.summary || ''}
                           context={JSON.stringify({ job_title: resumeData.personal_details?.job_title })}
                           onApply={(text) => setResumeData(prev => ({ ...prev, summary: text }))} />
                       </div>
@@ -447,7 +491,7 @@ Provide JSON with score (0-100), strengths[], improvements[], summary.`,
                         {exp.job_title || 'New Role'} <span className="text-slate-500 font-normal">at {exp.company || 'Company'}</span>
                       </h3>
                       <div className="flex gap-1">
-                        <AIAssistButton section={`Experience — ${exp.job_title || 'Role'}`} currentContent={exp.description || ''}
+                        <AIActions section="experience" currentContent={exp.description || ''}
                           context={JSON.stringify({ ...exp, full_name: resumeData.personal_details?.full_name })}
                           onApply={(text) => handleExperienceChange(index, 'description', text)} />
                         <Button variant="ghost" size="icon" onClick={() => handleRemoveExperience(index)}
@@ -502,6 +546,12 @@ Provide JSON with score (0-100), strengths[], improvements[], summary.`,
                 </div>
                 {(resumeData.education || []).map((edu, index) => (
                   <Card key={index} className="p-6 border border-slate-700 shadow-sm bg-slate-800">
+                    <div className="flex items-start justify-between mb-2">
+                      <h3 className="font-semibold text-slate-400 text-sm uppercase tracking-wider">{edu.degree || 'New Degree'}</h3>
+                      <AIActions section="education" currentContent={`${edu.degree} at ${edu.institution}${edu.gpa ? `, GPA: ${edu.gpa}` : ''}`}
+                        context={JSON.stringify(edu)}
+                        onApply={(text) => handleEducationChange(index, 'degree', text)} />
+                    </div>
                     <div className="grid sm:grid-cols-2 gap-4">
                       <div><Label className="text-xs text-slate-400">Degree</Label>
                         <Input value={edu.degree || ''} onChange={e => handleEducationChange(index, 'degree', e.target.value)} placeholder="Bachelor of Science" /></div>
@@ -524,9 +574,8 @@ Provide JSON with score (0-100), strengths[], improvements[], summary.`,
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <h2 className="text-lg font-bold text-slate-100">Skills</h2>
                   <div className="flex gap-2">
-                    <AISkillsSuggestButton
+                    <AIActions section="skills" currentContent={resumeData.skills?.map(s => s.name).join(', ')}
                       context={JSON.stringify({ job_title: resumeData.personal_details?.job_title, experience: resumeData.experience?.map(e => `${e.job_title} at ${e.company}`), education: resumeData.education?.map(ed => ed.degree) })}
-                      existingSkills={resumeData.skills || []}
                       onAddSkills={(newSkills) => {
                         const items = newSkills.map(function(n) { return { name: n, level: 'intermediate' }; });
                         setResumeData(function(prev) {
@@ -655,7 +704,15 @@ Provide JSON with score (0-100), strengths[], improvements[], summary.`,
       </Dialog>
 
       {/* Save prompt bar */}
-      {isDraft && !isAuthenticated && !resumeData._continueAsGuest && (
+      {/* Floating AI Assistant */}
+      <div className="fixed bottom-24 right-6 z-40">
+        <Button onClick={calculateResumeScore} disabled={calculatingScore}
+          className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white shadow-lg shadow-emerald-900/30 rounded-full w-14 h-14 flex items-center justify-center">
+          {calculatingScore ? <Loader2 className="w-6 h-6 animate-spin" /> : <Sparkles className="w-6 h-6" />}
+        </Button>
+      </div>
+
+            {isDraft && !isAuthenticated && !resumeData._continueAsGuest && (
         <div data-save-bar className="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 text-slate-100 px-4 py-3 shadow-2xl z-40">
           <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
