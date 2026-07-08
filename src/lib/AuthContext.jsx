@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useAuth as useClerkAuth, useUser } from '@clerk/react';
 import { setAuthToken } from './api';
 
@@ -7,6 +7,13 @@ const AuthContext = createContext();
 export const AuthProvider = ({ children }) => {
   const { isSignedIn, isLoaded: isAuthLoaded, signOut, getToken } = useClerkAuth();
   const { user, isLoaded: isUserLoaded } = useUser();
+  const [authTimedOut, setAuthTimedOut] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAuthTimedOut(true), 10000);
+    if (isAuthLoaded && isUserLoaded) clearTimeout(timer);
+    return () => clearTimeout(timer);
+  }, [isAuthLoaded, isUserLoaded]);
 
   useEffect(() => {
     if (isSignedIn) {
@@ -18,7 +25,7 @@ export const AuthProvider = ({ children }) => {
     }
   }, [isSignedIn, getToken]);
 
-  const isLoadingAuth = !isAuthLoaded || !isUserLoaded;
+  const isLoadingAuth = (!isAuthLoaded || !isUserLoaded) && !authTimedOut;
 
   const value = {
     user: user ? {
