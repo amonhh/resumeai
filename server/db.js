@@ -24,9 +24,11 @@ function saveLocal(data) {
 }
 
 export async function initDB() {
-  if (process.env.DATABASE_URL) {
+  const dbUrl = process.env.DATABASE_URL;
+  console.log('DATABASE_URL present:', !!dbUrl, dbUrl ? dbUrl.slice(0, 30) + '...' : '');
+  if (dbUrl) {
     try {
-      neonSql = neon(process.env.DATABASE_URL);
+      neonSql = neon(dbUrl);
       await neonSql`
         CREATE TABLE IF NOT EXISTS resumes (
           id TEXT PRIMARY KEY,
