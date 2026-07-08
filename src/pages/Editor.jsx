@@ -73,14 +73,31 @@ export default function Editor() {
 
   useEffect(() => {
     if (isAuthenticated && !prevAuthRef.current) {
-      if (pendingActionRef.current) {
-        const action = pendingActionRef.current;
-        pendingActionRef.current = null;
-        setTimeout(() => action(), 500);
+      let action = pendingActionRef.current;
+      pendingActionRef.current = null;
+
+      if (!action) {
+        try {
+          const stored = sessionStorage.getItem('resumeai_pending_action');
+          if (stored) {
+            action = () => {
+              const { format } = JSON.parse(stored);
+              if (format) doDownload(format);
+            };
+            sessionStorage.removeItem('resumeai_pending_action');
+          }
+        } catch {}
+      }
+
+      if (action) {
+        setTimeout(() => {
+          action();
+          toast.success('Welcome! Continuing your action...');
+        }, 600);
       } else {
         const draft = loadDraft();
         if (draft && (!resumeData || resumeData.id?.startsWith('draft_'))) {
-          setResumeData(prev => draft);
+          setResumeData(draft);
           toast.success('Session restored');
         }
       }
@@ -146,9 +163,22 @@ export default function Editor() {
     }
   };
 
+  const storePendingAction = (action) => {
+    pendingActionRef.current = action;
+    try { sessionStorage.setItem('resumeai_pending_action', JSON.stringify({ timestamp: Date.now(), type: action.name })); } catch {}
+  };
+
+  const validateRequired = () => {
+    const pd = resumeData?.personal_details;
+    if (!pd?.full_name?.trim()) { toast.error('Full name is required'); setActiveTab('personal'); return false; }
+    if (!pd?.email?.trim()) { toast.error('Email is required'); setActiveTab('personal'); return false; }
+    return true;
+  };
+
   const handleSave = async () => {
     if (isDraft && !isAuthenticated) {
-      pendingActionRef.current = () => handleSave();
+      if (!validateRequired()) return;
+      storePendingAction(() => handleSave());
       openSignIn({ mode: 'modal' });
       return;
     }
@@ -256,10 +286,12 @@ ${styles}
   const handleDownload = async (format) => {
     if (isDraft && !isAuthenticated) {
       setShowDownloadDialog(false);
-      pendingActionRef.current = async () => {
+      const action = async () => {
         await handleSave();
         doDownload(format);
       };
+      storePendingAction(action);
+      try { sessionStorage.setItem('resumeai_pending_action', JSON.stringify({ format })); } catch {}
       openSignIn({ mode: 'modal' });
       return;
     }
@@ -481,13 +513,13 @@ Return JSON with:
                   </div>
                   <div className="space-y-4">
                     <div className="grid sm:grid-cols-2 gap-4">
-                      <div><Label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Full Name</Label>
+                      <div><Label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Full Name <span className="text-red-400">*</span></Label>
                         <Input value={resumeData.personal_details?.full_name || ''} onChange={e => handlePersonalChange('full_name', e.target.value)} placeholder="John Doe" className="mt-1.5" /></div>
                       <div><Label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Job Title</Label>
                         <Input value={resumeData.personal_details?.job_title || ''} onChange={e => handlePersonalChange('job_title', e.target.value)} placeholder="Software Engineer" className="mt-1.5" /></div>
                     </div>
                     <div className="grid sm:grid-cols-2 gap-4">
-                      <div><Label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Email</Label>
+                      <div><Label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Email <span className="text-red-400">*</span></Label>
                         <Input type="email" value={resumeData.personal_details?.email || ''} onChange={e => handlePersonalChange('email', e.target.value)} placeholder="john@example.com" className="mt-1.5" /></div>
                       <div><Label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Phone</Label>
                         <Input value={resumeData.personal_details?.phone || ''} onChange={e => handlePersonalChange('phone', e.target.value)} placeholder="+1 234 567 8900" className="mt-1.5" /></div>
@@ -555,9 +587,9 @@ Return JSON with:
                       </div>
                     </div>
                     <div className="grid sm:grid-cols-2 gap-4">
-                      <div><Label className="text-xs text-slate-400">Job Title</Label>
+                      <div><Label className="text-xs text-slate-400">Job Title <span className="text-red-400">*</span></Label>
                         <Input value={exp.job_title || ''} onChange={e => handleExperienceChange(index, 'job_title', e.target.value)} placeholder="Senior Developer" /></div>
-                      <div><Label className="text-xs text-slate-400">Company</Label>
+                      <div><Label className="text-xs text-slate-400">Company <span className="text-red-400">*</span></Label>
                         <Input value={exp.company || ''} onChange={e => handleExperienceChange(index, 'company', e.target.value)} placeholder="Tech Corp" /></div>
                     </div>
                     <div className="grid sm:grid-cols-3 gap-4 mt-3">
@@ -607,9 +639,9 @@ Return JSON with:
                         onApply={(text) => handleEducationChange(index, 'degree', text)} />
                     </div>
                     <div className="grid sm:grid-cols-2 gap-4">
-                      <div><Label className="text-xs text-slate-400">Degree</Label>
+                      <div><Label className="text-xs text-slate-400">Degree <span className="text-red-400">*</span></Label>
                         <Input value={edu.degree || ''} onChange={e => handleEducationChange(index, 'degree', e.target.value)} placeholder="Bachelor of Science" /></div>
-                      <div><Label className="text-xs text-slate-400">Institution</Label>
+                      <div><Label className="text-xs text-slate-400">Institution <span className="text-red-400">*</span></Label>
                         <Input value={edu.institution || ''} onChange={e => handleEducationChange(index, 'institution', e.target.value)} placeholder="University Name" /></div>
                     </div>
                     <div className="grid sm:grid-cols-3 gap-4 mt-3">
