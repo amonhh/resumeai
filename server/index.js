@@ -19,6 +19,7 @@ const clerk = createClerkClient({
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
+const MAX_PHOTO_SIZE = 512000; // 500KB base64 data URL cap
 
 async function requireAuth(req, res, next) {
   try {
@@ -64,23 +65,33 @@ app.get('/api/resumes/:id', requireAuth, async (req, res) => {
   }
 });
 
+function validatePhoto(personal) {
+  if (personal?.photo_url && personal.photo_url.length > MAX_PHOTO_SIZE) {
+    throw Object.assign(new Error('photo_url exceeds 500KB limit'), { status: 400 });
+  }
+}
+
 app.post('/api/resumes', requireAuth, async (req, res) => {
   try {
+    validatePhoto(req.body.personal_details);
     const resume = await createResume(req.auth.userId, req.body);
     res.status(201).json(resume);
   } catch (err) {
     console.error('Error creating resume:', err);
+    if (err.status === 400) return res.status(400).json({ error: err.message });
     res.status(500).json({ error: 'Failed to create resume' });
   }
 });
 
 app.put('/api/resumes/:id', requireAuth, async (req, res) => {
   try {
+    validatePhoto(req.body.personal_details);
     const resume = await updateResume(req.params.id, req.auth.userId, req.body);
     if (!resume) return res.status(404).json({ error: 'Resume not found' });
     res.json(resume);
   } catch (err) {
     console.error('Error updating resume:', err);
+    if (err.status === 400) return res.status(400).json({ error: err.message });
     res.status(500).json({ error: 'Failed to update resume' });
   }
 });

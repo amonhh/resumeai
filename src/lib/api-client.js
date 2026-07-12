@@ -5,8 +5,7 @@ const integrations = {
     InvokeLLM: async ({ prompt, response_json_schema, image }) => {
       const key = import.meta.env.VITE_OPENROUTER_KEY;
       if (!key) {
-        console.warn('No OpenRouter key set. LLM calls will return mock data.');
-        return mockLLMResponse(response_json_schema);
+        throw new Error('AI features require an OpenRouter API key. Please configure VITE_OPENROUTER_KEY.');
       }
       try {
         const messages = [
@@ -62,6 +61,36 @@ const integrations = {
       }
     },
     UploadFile: async ({ file }) => {
+      const maxSize = 2 * 1024 * 1024;
+      if (file.size > maxSize) {
+        return new Promise((resolve) => {
+          const img = new Image();
+          const url = URL.createObjectURL(file);
+          img.onload = () => {
+            URL.revokeObjectURL(url);
+            let w = img.width, h = img.height;
+            const maxDim = 800;
+            if (w > maxDim || h > maxDim) {
+              const ratio = Math.min(maxDim / w, maxDim / h);
+              w = Math.round(w * ratio);
+              h = Math.round(h * ratio);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            resolve({ file_url: canvas.toDataURL('image/jpeg', 0.8) });
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(url);
+            const reader = new FileReader();
+            reader.onload = () => resolve({ file_url: reader.result });
+            reader.readAsDataURL(file);
+          };
+          img.src = url;
+        });
+      }
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve({ file_url: reader.result });

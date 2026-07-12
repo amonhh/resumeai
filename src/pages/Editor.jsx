@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/lib/db';
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import {
   Save, Eye, Download, Plus, Trash2, ArrowLeft, Sparkles, TrendingUp, Loader2, Upload,
-  FileText, FileDown, Search, UserPlus, X, ChevronRight, Printer, Cloud, CloudOff, Clock
+  FileText, FileDown, Search, UserPlus, X, ChevronRight, Cloud, CloudOff
 } from "lucide-react";
 import { useNavigate, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
@@ -27,6 +27,9 @@ import ScoreFeedbackDialog from '../components/resume/ScoreFeedbackDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from 'sonner';
 import { useAutoSave, loadDraft, clearDraft } from '@/lib/useAutoSave';
+import PhotoEditorDialog from '../components/resume/PhotoEditorDialog';
+import { processProfilePhoto } from '@/lib/imageProcessor';
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Editor() {
   const navigate = useNavigate();
@@ -46,14 +49,28 @@ export default function Editor() {
   const [isDraft, setIsDraft] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [photoEditFile, setPhotoEditFile] = useState(null);
+  const [showPhotoEditor, setShowPhotoEditor] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
-  const [draftRestored, setDraftRestored] = useState(false);
+  const initializedRef = useRef(false);
   const previewRef = useRef(null);
   const resumeContentRef = useRef(null);
   const [previewScale, setPreviewScale] = useState(0.5);
   const pendingActionRef = useRef(null);
   const prevAuthRef = useRef(false);
   const saveToApiRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const { saveStatus } = useAutoSave(resumeData, isAuthenticated, saveToApiRef);
 
@@ -73,26 +90,49 @@ export default function Editor() {
 
   useEffect(() => {
     if (isAuthenticated && !prevAuthRef.current) {
-      let action = pendingActionRef.current;
+      let pendingAction = pendingActionRef.current;
       pendingActionRef.current = null;
 
-      if (!action) {
+      if (!pendingAction) {
         try {
           const stored = sessionStorage.getItem('resumeai_pending_action');
           if (stored) {
-            action = () => {
-              const { format } = JSON.parse(stored);
-              if (format) doDownload(format);
-            };
+            pendingAction = JSON.parse(stored);
             sessionStorage.removeItem('resumeai_pending_action');
           }
         } catch {}
       }
 
-      if (action) {
-        setTimeout(() => {
-          action();
-          toast.success('Welcome! Continuing your action...');
+      if (pendingAction) {
+        setTimeout(async () => {
+          try {
+            if (pendingAction.type === 'save') {
+              await handleSave();
+              toast.success('Welcome! Continuing your action...');
+            } else if (pendingAction.type === 'download') {
+              if (pendingAction.draft) await handleSave();
+              const htmlContent = await renderResumeHTML(pendingAction.format);
+              if (htmlContent) {
+                const mime = pendingAction.format === 'pdf' ? 'text/html' : 'application/msword';
+                const ext = pendingAction.format === 'pdf' ? 'html' : 'doc';
+                const blob = new Blob([htmlContent], { type: mime });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Resume.${ext}`;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                if (pendingAction.format === 'pdf') {
+                  toast.success('Welcome! Downloaded as HTML file. Open it and press Ctrl+P to save as PDF.');
+                } else {
+                  toast.success('Welcome! Download starting...');
+                }
+              } else {
+                toast.error('Could not generate resume preview for download. Try downloading from the editor.');
+              }
+            }
+          } catch {}
         }, 600);
       } else {
         const draft = loadDraft();
@@ -105,16 +145,14 @@ export default function Editor() {
     prevAuthRef.current = isAuthenticated;
   }, [isAuthenticated]);
 
-  const { data: resume, isLoading } = useQuery({
+  const { data: resume, isLoading, error: resumeError } = useQuery({
     queryKey: ['resume', resumeId],
-    queryFn: async () => {
-      const resumes = await db.entities.Resume.filter({ id: resumeId });
-      return resumes[0];
-    },
+    queryFn: () => db.entities.Resume.get(resumeId),
     enabled: !!resumeId && !location.state?.resumeData
   });
 
   useEffect(() => {
+    if (initializedRef.current) return;
     if (location.state?.resumeData) {
       setResumeData({
         ...location.state.resumeData,
@@ -123,26 +161,27 @@ export default function Editor() {
         updated_date: new Date().toISOString()
       });
       setIsDraft(true);
-      setDraftRestored(false);
     } else if (resume) {
       setResumeData(resume);
       setIsDraft(false);
-      setDraftRestored(false);
-    } else if (!resumeData && !draftRestored) {
+    } else {
       const draft = loadDraft();
       if (draft) {
         setResumeData({ ...draft, id: draft.id || `draft_${Date.now()}` });
         setIsDraft(true);
-        setDraftRestored(true);
         toast.success('Restored your last session');
       }
     }
-  }, [resume, location.state, resumeData, draftRestored]);
+    initializedRef.current = true;
+  }, [resume, location.state]);
 
   const updateResumeMutation = useMutation({
-    mutationFn: (data) => db.entities.Resume.update(resumeId, data),
+    mutationFn: (data) => db.entities.Resume.update(data.id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['resume', resumeId] });
+    },
+    onError: (error) => {
+      toast.error('Failed to save: ' + (error.message || 'Unknown error'));
     }
   });
 
@@ -154,6 +193,9 @@ export default function Editor() {
       setResumeData(prev => ({ ...prev, id: newResume.id }));
       window.history.replaceState(null, '', createPageUrl(`Editor?id=${newResume.id}`));
       toast.success('Resume saved!');
+    },
+    onError: (error) => {
+      toast.error('Failed to save: ' + (error.message || 'Unknown error'));
     }
   });
 
@@ -163,9 +205,11 @@ export default function Editor() {
     }
   };
 
-  const storePendingAction = (action) => {
-    pendingActionRef.current = action;
-    try { sessionStorage.setItem('resumeai_pending_action', JSON.stringify({ timestamp: Date.now(), type: action.name })); } catch {}
+  const storePendingAction = (type, format) => {
+    const meta = { type, draft: isDraft };
+    if (format) meta.format = format;
+    pendingActionRef.current = meta;
+    try { sessionStorage.setItem('resumeai_pending_action', JSON.stringify(meta)); } catch {}
   };
 
   const validateRequired = () => {
@@ -178,14 +222,14 @@ export default function Editor() {
   const handleSave = async () => {
     if (isDraft && !isAuthenticated) {
       if (!validateRequired()) return;
-      storePendingAction(() => handleSave());
+      storePendingAction('save');
       openSignIn({ mode: 'modal' });
       return;
     }
     if (isDraft) {
-      const { id, created_date, updated_date, score, score_feedback, _continueAsGuest, ...rest } = resumeData;
+      const { id: _id, created_date: _cd, updated_date: _ud, score, score_feedback, _continueAsGuest, ...saveData } = resumeData;
       await createResumeMutation.mutateAsync({
-        ...rest, score: score || 0, score_feedback: score_feedback || {}
+        ...saveData, score: score || 0, score_feedback: score_feedback || {}
       });
       clearDraft();
     } else {
@@ -198,84 +242,195 @@ export default function Editor() {
     return Array.from(nodes).map(el => el.outerHTML).join('\n');
   };
 
+  const stripTailwindClasses = (el) => {
+    if (el.nodeType !== 1) return;
+    const remove = ['absolute', 'shadow-xl', 'ring-1', 'ring-slate-700', 'shadow-lg', 'shadow-2xl'];
+    el.className = (el.className || '').split(/\s+/).filter(c => !remove.includes(c)).join(' ');
+    el.querySelectorAll('*').forEach(stripTailwindClasses);
+  };
+
   const [downloadProgress, setDownloadProgress] = useState(null);
 
-  const doDownload = async (format) => {
+  const renderResumeHTML = async (format) => {
+    const contentEl = resumeContentRef.current;
+    let html;
+    if (contentEl) {
+      const clone = contentEl.cloneNode(true);
+      stripTailwindClasses(clone);
+      clone.style.transform = '';
+      clone.style.position = '';
+      clone.style.width = '210mm';
+      clone.style.minHeight = '297mm';
+      clone.style.margin = '0';
+      clone.style.padding = '0';
+      html = clone.outerHTML;
+    } else {
+      const div = document.createElement('div');
+      div.style.cssText = 'position:absolute;left:-9999px;top:0;width:210mm;min-height:297mm;margin:0;padding:0;background:white;';
+      document.body.appendChild(div);
+      const root = createRoot(div);
+      root.render(<ResumePreview resume={resumeData} template={resumeData.template} customColors={resumeData.customColors} />);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await new Promise(r => setTimeout(r, 300));
+        html = div.innerHTML;
+        if (html && html.length > 50) break;
+      }
+      root.unmount();
+      document.body.removeChild(div);
+    }
+    if (!html || html.length <= 50) return null;
+    const styles = copyStyles();
+    const safeTitle = (resumeData.title || 'Resume').replace(/[<>"'&]/g, '').replace(/\s+/g, '_');
+    const baseUrl = window.location.href.split('?')[0];
+    let fullDoc;
+    if (format === 'pdf') {
+      fullDoc = `<!DOCTYPE html>
+<html><head>
+<base href="${baseUrl}">
+<meta charset="utf-8"><title>${safeTitle}</title>
+${styles}
+<style>
+  @page { size: A4; margin: 15mm 20mm; }
+  body { margin: 0; padding: 0; background: white; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+</style>
+</head><body>${html}</body></html>`;
+    } else {
+      const wordStyles = styles.replace(/@import\s+url\([^)]+\);/g, '')
+        .replace(/(?:\.|\#)[a-zA-Z0-9_-]+\s*\{[^}]*\}/g, '');
+      fullDoc = `<!DOCTYPE html>
+<html xmlns:o='urn:schemas-microsoft-com:office:office'
+      xmlns:w='urn:schemas-microsoft-com:office:word'
+      xmlns='http://www.w3.org/TR/REC-html40'>
+<head><meta charset="utf-8"><title>${safeTitle}</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+${wordStyles}
+<style>
+  @page { size: A4; margin: 1in; }
+  body { margin: 0; padding: 0; font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #000; }
+  h1, h2, h3, h4, p, div, ul, li { margin: 0; padding: 0; }
+</style>
+</head><body>${html}</body></html>`;
+    }
+    return fullDoc;
+  };
+
+  const doDownload = async (format, preOpenedPw) => {
     setDownloading(true);
     setDownloadProgress(`Preparing ${format.toUpperCase()}...`);
+
+    let pw = preOpenedPw;
+    if (format === 'pdf' && !pw) {
+      setDownloadProgress('Opening print dialog...');
+      pw = window.open('', '_blank', 'width=800,height=600');
+      if (!pw) {
+        toast.error('Pop-up blocked. Please allow pop-ups for your browser, then try again.');
+        setDownloading(false);
+        setDownloadProgress(null);
+        return;
+      }
+    }
+
     try {
+      const formatLabel = format === 'pdf' ? 'PDF' : 'DOC';
+
       let html;
       const contentEl = resumeContentRef.current;
       if (contentEl) {
+        setDownloadProgress('Rendering preview...');
         const clone = contentEl.cloneNode(true);
+        stripTailwindClasses(clone);
         clone.style.transform = '';
         clone.style.position = '';
         clone.style.width = '210mm';
         clone.style.minHeight = '297mm';
+        clone.style.margin = '0';
+        clone.style.padding = '0';
         html = clone.outerHTML;
       } else {
         setDownloadProgress('Rendering preview...');
         const div = document.createElement('div');
-        div.style.cssText = 'position:absolute;left:-9999px;top:0;width:210mm;';
+        div.style.cssText = 'position:absolute;left:-9999px;top:0;width:210mm;min-height:297mm;margin:0;padding:0;background:white;';
         document.body.appendChild(div);
         const root = createRoot(div);
-        root.render(<ResumePreview resume={resumeData} template={resumeData.template} />);
-        await new Promise(r => setTimeout(r, 1000));
-        html = div.innerHTML;
+        root.render(<ResumePreview resume={resumeData} template={resumeData.template} customColors={resumeData.customColors} />);
+        for (let attempt = 0; attempt < 3; attempt++) {
+          await new Promise(r => setTimeout(r, 600));
+          html = div.innerHTML;
+          if (html && html.length > 50) break;
+        }
+        if (!html || html.length <= 50) throw new Error('Preview render timed out');
         root.unmount();
         document.body.removeChild(div);
       }
+
       setDownloadProgress('Applying styles...');
       const styles = copyStyles();
 
+      const safeTitle = (resumeData.title || 'Resume').replace(/[<>"'&]/g, '').replace(/\s+/g, '_');
+
       if (format === 'pdf') {
-        const pw = window.open('', '_blank', 'width=800,height=600');
-        if (!pw) {
-          toast.error('Pop-up blocked. Please allow pop-ups for your browser, then try again.');
-          setDownloading(false);
-          setDownloadProgress(null);
-          return;
-        }
+        if (pw.closed) throw new Error('Print popup was closed');
+        const baseUrl = window.location.href.split('?')[0];
         pw.document.write(`<!DOCTYPE html>
 <html><head>
-<meta charset="utf-8"><title>${resumeData.title || 'Resume'}</title>
+<base href="${baseUrl}">
+<meta charset="utf-8"><title>${safeTitle}</title>
 ${styles}
 <style>
-  @page { size: A4; margin: 0; }
+  @page { size: A4; margin: 15mm 20mm; }
   body { margin: 0; padding: 0; background: white; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 </style>
 </head><body>${html}</body></html>`);
         pw.document.close();
-        setDownloadProgress('Opening print dialog...');
-        setTimeout(() => { pw.focus(); pw.print(); setDownloadProgress(null); }, 600);
+
+        await new Promise((resolve) => {
+          if (pw.document.readyState === 'complete') {
+            resolve();
+          } else {
+            pw.onload = resolve;
+            setTimeout(resolve, 3000);
+          }
+        });
+
+        pw.focus();
+        pw.print();
+        setDownloadProgress(null);
       } else {
         setDownloadProgress('Generating document...');
+        const wordStyles = styles.replace(/@import\s+url\([^)]+\);/g, '')
+          .replace(/(?:\.|\#)[a-zA-Z0-9_-]+\s*\{[^}]*\}/g, '');
         const fullDoc = `<!DOCTYPE html>
 <html xmlns:o='urn:schemas-microsoft-com:office:office'
       xmlns:w='urn:schemas-microsoft-com:office:word'
       xmlns='http://www.w3.org/TR/REC-html40'>
-<head><meta charset="utf-8">
+<head><meta charset="utf-8"><title>${safeTitle}</title>
 <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
-${styles}
+${wordStyles}
 <style>
-  body { margin: 0; padding: 0; background: white; }
-  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { size: A4; margin: 1in; }
+  body { margin: 0; padding: 0; font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #000; }
+  h1, h2, h3, h4, p, div, ul, li { margin: 0; padding: 0; }
 </style>
 </head><body>${html}</body></html>`;
         const blob = new Blob([fullDoc], { type: 'application/msword' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${(resumeData.title || 'resume').replace(/\s+/g, '_')}.doc`;
+        a.download = `${safeTitle}.doc`;
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 100);
         setDownloadProgress(null);
       }
-      toast.success(`Downloaded as ${format.toUpperCase()}`);
+
+      toast.success(`${formatLabel} download ready`);
     } catch (e) {
+      console.error('Download failed:', e);
       toast.error('Download failed: ' + e.message);
       setDownloadProgress(null);
     } finally {
@@ -286,21 +441,57 @@ ${styles}
   const handleDownload = async (format) => {
     if (isDraft && !isAuthenticated) {
       setShowDownloadDialog(false);
-      const action = async () => {
-        await handleSave();
-        doDownload(format);
-      };
-      storePendingAction(action);
-      try { sessionStorage.setItem('resumeai_pending_action', JSON.stringify({ format })); } catch {}
+      storePendingAction('download', format);
       openSignIn({ mode: 'modal' });
       return;
     }
-    if (isDraft) await handleSave();
-    doDownload(format);
+    setShowDownloadDialog(false);
+    let pw;
+    if (format === 'pdf') {
+      pw = window.open('', '_blank', 'width=800,height=600');
+      if (!pw) {
+        toast.error('Pop-up blocked. Please allow pop-ups for your browser, then try again.');
+        return;
+      }
+    }
+    try {
+      if (isDraft) {
+        try {
+          await handleSave();
+        } catch {
+          toast.error('Save failed. Please sign in and try again.');
+          setDownloading(false);
+          return;
+        }
+      }
+      await doDownload(format, pw);
+    } catch {
+      toast.error('Download failed. Please try again.');
+    }
   };
 
   const handlePersonalChange = (field, value) => {
     setResumeData(prev => ({ ...prev, personal_details: { ...prev.personal_details, [field]: value } }));
+  };
+
+  const handlePhotoComplete = async (dataUrl) => {
+    handlePersonalChange('photo_url', dataUrl);
+    setShowPhotoEditor(false);
+    setPhotoEditFile(null);
+  };
+
+  const handleRepositionPhoto = () => {
+    const currentUrl = resumeData.personal_details?.photo_url;
+    if (currentUrl) {
+      fetch(currentUrl)
+        .then(r => r.blob())
+        .then(blob => {
+          const file = new File([blob], 'photo.jpg', { type: 'image/jpeg' });
+          setPhotoEditFile(file);
+          setShowPhotoEditor(true);
+        })
+        .catch(() => toast.error('Could not load existing photo'));
+    }
   };
 
   const handleAddExperience = () => {
@@ -398,25 +589,50 @@ Return JSON with:
         toast.success(`ATS Score: ${score}%`);
         setShowScoreFeedback(true);
       }
-    } catch (error) {
+    } catch {
       if (!silent) toast.error('Failed to calculate score');
     } finally {
       setCalculatingScore(false);
     }
   }, [resumeData]);
 
-  // Auto-recalculate score when resume data changes (debounced)
-  const scoreTimerRef = useRef(null);
-  useEffect(() => {
-    if (resumeData && !resumeData.id?.startsWith('draft_')) {
-      if (scoreTimerRef.current) clearTimeout(scoreTimerRef.current);
-      scoreTimerRef.current = setTimeout(() => calculateResumeScore(true), 5000);
-    }
-    return () => { if (scoreTimerRef.current) clearTimeout(scoreTimerRef.current); };
-  }, [resumeData, calculateResumeScore]);
+  // Score is calculated manually via the Score button, not on every change
+
+  if (resumeError && !resumeData) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] p-6">
+        <div className="max-w-7xl mx-auto flex flex-col items-center justify-center h-96 gap-4">
+          <p className="text-red-400 text-lg">Failed to load resume.</p>
+          <p className="text-slate-500 text-sm">{resumeError.message || 'The resume may not exist or you may not have access.'}</p>
+          <Button onClick={() => navigate(createPageUrl('Dashboard'))} variant="outline" className="border-slate-600 text-slate-200">
+            Back to Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if ((isLoading && !location.state?.resumeData) || !resumeData) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-950"><Loader2 className="w-8 h-8 animate-spin text-emerald-400" /></div>;
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] p-6">
+        <div className="max-w-7xl mx-auto flex gap-6">
+          <div className="flex-1 space-y-6">
+            <Skeleton className="h-10 w-64 bg-slate-800" />
+            <Skeleton className="h-10 w-full bg-slate-800" />
+            <div className="grid grid-cols-2 gap-4">
+              <Skeleton className="h-12 bg-slate-800" />
+              <Skeleton className="h-12 bg-slate-800" />
+              <Skeleton className="h-12 bg-slate-800" />
+              <Skeleton className="h-12 bg-slate-800" />
+            </div>
+            <Skeleton className="h-32 w-full bg-slate-800" />
+          </div>
+          <div className="w-[400px] hidden lg:block">
+            <Skeleton className="h-[600px] w-full bg-slate-800 rounded-lg" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -426,7 +642,7 @@ Return JSON with:
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-3 min-w-0">
-              <Button variant="ghost" size="icon" onClick={() => navigate(createPageUrl('Home'))} className="shrink-0 text-slate-400 hover:text-slate-200">
+              <Button variant="ghost" size="icon" onClick={() => navigate(createPageUrl('Home'))} className="shrink-0 text-slate-400 hover:text-slate-200" aria-label="Back to home">
                 <ArrowLeft className="w-5 h-5" />
               </Button>
               <div className="min-w-0">
@@ -465,7 +681,7 @@ Return JSON with:
                 <Download className="w-4 h-4 mr-1.5" /> Download
               </Button>
               {isDraft && !isAuthenticated ? (
-                <Button onClick={() => openSignIn({ mode: 'modal' })}
+                <Button onClick={handleSave}
                   className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white shadow-md" size="sm">
                   <UserPlus className="w-4 h-4 mr-1.5" /> Save
                 </Button>
@@ -535,17 +751,53 @@ Return JSON with:
                             <Button variant="outline" size="sm" onClick={() => handlePersonalChange('photo_url', '')}>Remove</Button>
                           </div>
                         ) : (
-                          <label className="cursor-pointer inline-flex items-center gap-2 text-sm text-slate-400 hover:text-emerald-400">
-                            <Upload className="w-4 h-4" /> Upload Photo
-                            <input type="file" accept="image/*" className="hidden"
-                              onChange={async (e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  const { file_url } = await db.integrations.Core.UploadFile({ file });
-                                  handlePersonalChange('photo_url', file_url);
-                                }
-                              }} />
-                          </label>
+                          <>
+                            <label className="cursor-pointer inline-flex items-center gap-2 text-sm text-slate-400 hover:text-emerald-400" aria-label="Upload profile photo">
+                              {uploadingPhoto ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Upload className="w-4 h-4" />
+                              )}
+                              {uploadingPhoto ? 'Processing...' : 'Upload Photo'}
+                              <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  const maxSize = 10 * 1024 * 1024;
+                                  if (file.size > maxSize) {
+                                    toast.error('Image too large. Max 10MB.');
+                                    e.target.value = '';
+                                    return;
+                                  }
+                                  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+                                    toast.error('Supported formats: JPG, PNG, WEBP');
+                                    e.target.value = '';
+                                    return;
+                                  }
+                                  setUploadingPhoto(true);
+                                  try {
+                                    const processed = await processProfilePhoto(file, {
+                                      maxDim: 800, quality: 0.85, smartCrop: true, forceSquare: false,
+                                    });
+                                    const blob = await (await fetch(processed.file_url)).blob();
+                                    const processedFile = new File([blob], 'photo.jpg', { type: 'image/jpeg' });
+                                    setPhotoEditFile(processedFile);
+                                    setShowPhotoEditor(true);
+                                  } catch {
+                                    setPhotoEditFile(file);
+                                    setShowPhotoEditor(true);
+                                  } finally {
+                                    setUploadingPhoto(false);
+                                  }
+                                  e.target.value = '';
+                                }} />
+                            </label>
+                            {resumeData.personal_details?.photo_url && (
+                              <button onClick={handleRepositionPhoto} className="text-xs text-emerald-400 hover:text-emerald-300 ml-2">
+                                Reposition
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -581,7 +833,7 @@ Return JSON with:
                           context={JSON.stringify({ ...exp, full_name: resumeData.personal_details?.full_name })}
                           onApply={(text) => handleExperienceChange(index, 'description', text)} />
                         <Button variant="ghost" size="icon" onClick={() => handleRemoveExperience(index)}
-                          className="text-slate-500 hover:text-red-500 h-8 w-8">
+                          className="text-slate-500 hover:text-red-500 h-8 w-8" aria-label="Remove experience">
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
@@ -720,7 +972,7 @@ Return JSON with:
               {mobilePreviewOpen && (
                 <div className="flex items-center justify-between p-4 border-b border-slate-700 lg:hidden">
                   <h3 className="font-semibold text-slate-200">Resume Preview</h3>
-                  <Button variant="ghost" size="icon" onClick={() => setMobilePreviewOpen(false)}>
+                  <Button variant="ghost" size="icon" onClick={() => setMobilePreviewOpen(false)} aria-label="Close preview">
                     <X className="w-5 h-5 text-slate-400" />
                   </Button>
                 </div>
@@ -747,6 +999,9 @@ Return JSON with:
 
       <ScoreFeedbackDialog open={showScoreFeedback} onClose={() => setShowScoreFeedback(false)}
         score={resumeData?.score} feedback={resumeData?.score_feedback} />
+
+      <PhotoEditorDialog open={showPhotoEditor} onClose={() => { setShowPhotoEditor(false); setPhotoEditFile(null); }}
+        file={photoEditFile} onComplete={handlePhotoComplete} />
 
       {/* Download Dialog */}
       <Dialog open={showDownloadDialog} onOpenChange={(v) => { if (!downloading) setShowDownloadDialog(v); }}>
@@ -787,15 +1042,6 @@ Return JSON with:
                 </div>
                 {downloading ? <Loader2 className="w-5 h-5 animate-spin text-emerald-400" /> : <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 transition-colors" />}
               </button>
-
-              {downloading && (
-                <div className="bg-slate-900/50 rounded-lg p-4 text-center">
-                  <div className="w-full bg-slate-700 rounded-full h-2 mb-2">
-                    <div className="bg-emerald-500 h-2 rounded-full animate-pulse" style={{ width: '60%' }} />
-                  </div>
-                  <p className="text-xs text-slate-400">Generating {downloading === 'pdf' ? 'PDF' : 'DOC'}...</p>
-                </div>
-              )}
 
               {isDraft && !isAuthenticated && (
                 <div className="bg-amber-900/30 border border-amber-800/50 rounded-lg p-4 text-sm text-amber-300">

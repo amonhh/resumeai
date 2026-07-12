@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/lib/db';
+import { useAuth } from '@/lib/AuthContext';
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -28,49 +29,60 @@ import UploadResumeDialog from '../components/resume/UploadResumeDialog';
 import LinkedInImportDialog from '../components/resume/LinkedInImportDialog';
 import AIResumeWizard from '../components/resume/AIResumeWizard';
 import { toast } from 'sonner';
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { isAuthenticated } = useAuth();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [showLinkedInDialog, setShowLinkedInDialog] = useState(false);
   const [showAIWizard, setShowAIWizard] = useState(false);
 
   const { data: resumes, isLoading } = useQuery({
-    queryKey: ['resumes'],
+    queryKey: ['resumes', isAuthenticated],
     queryFn: () => db.entities.Resume.list(),
-    initialData: []
+    initialData: [],
   });
 
   const createResumeMutation = useMutation({
     mutationFn: (data) => db.entities.Resume.create(data),
     onSuccess: (newResume) => {
-      queryClient.invalidateQueries({ queryKey: ['resumes'] });
+      queryClient.invalidateQueries({ queryKey: ['resumes', isAuthenticated] });
       navigate(createPageUrl(`Editor?id=${newResume.id}`));
       toast.success('Resume created successfully');
+    },
+    onError: () => {
+      toast.error('Failed to create resume. Please try again.');
     }
   });
 
   const deleteResumeMutation = useMutation({
     mutationFn: (id) => db.entities.Resume.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['resumes'] });
+      queryClient.invalidateQueries({ queryKey: ['resumes', isAuthenticated] });
       toast.success('Resume deleted');
+    },
+    onError: () => {
+      toast.error('Failed to delete resume. Please try again.');
     }
   });
 
   const duplicateResumeMutation = useMutation({
     mutationFn: async (resume) => {
-      const { id, created_date, updated_date, ...resumeData } = resume;
+      const { id: _id, created_date: _cd, updated_date: _ud, ...resumeData } = resume;
       return db.entities.Resume.create({
         ...resumeData,
         title: `${resumeData.title} (Copy)`
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['resumes'] });
+      queryClient.invalidateQueries({ queryKey: ['resumes', isAuthenticated] });
       toast.success('Resume duplicated');
+    },
+    onError: () => {
+      toast.error('Failed to duplicate resume. Please try again.');
     }
   });
 
@@ -80,14 +92,18 @@ export default function Dashboard() {
     if (method === 'ai') {
       setShowAIWizard(true);
     } else if (method === 'new') {
-      await createResumeMutation.mutateAsync({
-        title: 'Untitled Resume',
-        template: 'modern-blue',
-        personal_details: {},
-        experience: [],
-        education: [],
-        skills: []
-      });
+      try {
+        await createResumeMutation.mutateAsync({
+          title: 'Untitled Resume',
+          template: 'modern-blue',
+          personal_details: {},
+          experience: [],
+          education: [],
+          skills: []
+        });
+      } catch {
+        // onError handles toast
+      }
     } else if (method === 'upload') {
       setShowUploadDialog(true);
     } else if (method === 'linkedin') {
@@ -120,6 +136,20 @@ export default function Dashboard() {
           </Button>
         </div>
 
+        {isLoading && (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3].map((i) => (
+              <Card key={i} className="bg-[#141414] border-[#222] overflow-hidden">
+                <Skeleton className="aspect-[210/297] rounded-none bg-slate-800" />
+                <div className="p-4 space-y-3">
+                  <Skeleton className="h-5 w-3/4 bg-slate-800" />
+                  <Skeleton className="h-4 w-1/2 bg-slate-800" />
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+
         {!isLoading && resumes.length === 0 && (
           <Card className="p-16 text-center bg-[#141414] border-[#222]">
             <div className="max-w-md mx-auto">
@@ -151,7 +181,8 @@ export default function Dashboard() {
                         onClick={() => navigate(createPageUrl(`Editor?id=${resume.id}`))}>
                         <Edit className="w-4 h-4 mr-1" /> Edit
                       </Button>
-                      <Button size="sm" variant="secondary">
+                      <Button size="sm" variant="secondary"
+                        onClick={() => navigate(createPageUrl(`Editor?id=${resume.id}`))}>
                         <Eye className="w-4 h-4 mr-1" /> Preview
                       </Button>
                     </div>
@@ -169,7 +200,7 @@ export default function Dashboard() {
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400" aria-label="More actions">
                           <MoreVertical className="w-4 h-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -180,7 +211,7 @@ export default function Dashboard() {
                         <DropdownMenuItem onClick={() => duplicateResumeMutation.mutate(resume)}>
                           <Copy className="w-4 h-4 mr-2" /> Duplicate
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => navigate(createPageUrl(`Editor?id=${resume.id}`))}>
                           <Download className="w-4 h-4 mr-2" /> Download PDF
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => deleteResumeMutation.mutate(resume.id)} className="text-red-400">
